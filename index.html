@@ -43,7 +43,7 @@
   .viewtoggle button{border:none;background:var(--surface);font-family:var(--mono);font-size:10px;letter-spacing:.08em;
     text-transform:uppercase;padding:6px 11px;cursor:pointer;color:var(--ink-soft);}
   .viewtoggle button.on{background:var(--ink);color:var(--sheet);}
-  .viewtoggle button:first-child{border-right:1px solid var(--line-strong);}
+  .viewtoggle button:not(:last-child){border-right:1px solid var(--line-strong);}
   .spacer{flex:1;}
   .controls{display:flex;align-items:center;gap:6px;}
   button.tool{font-family:var(--sans);font-size:12px;color:var(--ink);background:var(--surface);
@@ -76,7 +76,9 @@
   .row.dropbelow{box-shadow:inset 0 -2px 0 var(--red);}
   .disc{width:12px;height:12px;flex:none;cursor:pointer;color:var(--ink-soft);font-size:9px;display:flex;align-items:center;justify-content:center;user-select:none;}
   .disc.empty{visibility:hidden;}
-  .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;}
+  .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;flex:1;min-width:0;}
+  .achip{width:18px;height:18px;border-radius:50%;color:#fff;font-family:var(--mono);font-size:8px;display:flex;align-items:center;justify-content:center;flex:none;margin-right:5px;letter-spacing:.02em;}
+  .overload{position:absolute;bottom:2px;height:5px;border-radius:2px;}
   .odot{color:var(--red);font-size:8px;flex:none;}
   .row.lvl0 .name{font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:12px;}
   .row.lvl1 .r-act{padding-left:22px;}
@@ -209,6 +211,7 @@
     <div class="viewtoggle">
       <button id="vSheet" class="on">Sheet</button>
       <button id="vOver">All projects</button>
+      <button id="vTeam">Team</button>
     </div>
     <span class="spacer"></span>
     <div class="controls">
@@ -253,7 +256,7 @@ function shade(hex,amt){const c=hex.replace('#','');const n=parseInt(c,16);let r
   return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);}
 
 let UID=1;const uid=()=>'t'+(UID++);
-function T(name,level,opts={}){return Object.assign({id:uid(),name,level,summary:false,collapsed:false,progress:0,start:null,end:null,deps:[]},opts);}
+function T(name,level,opts={}){return Object.assign({id:uid(),name,level,summary:false,collapsed:false,progress:0,start:null,end:null,deps:[],assignee:''},opts);}
 
 function seed(){
   UID=1;
@@ -267,7 +270,7 @@ function seed(){
 const KEY='schedule_sheet_v2';
 function load(){
   try{const raw=localStorage.getItem(KEY);if(raw){const s=JSON.parse(raw);
-    let max=0;Object.values(s.projects).forEach(p=>p.tasks.forEach(t=>{if(!t.deps)t.deps=[];const n=parseInt(String(t.id).replace('t',''));if(n>max)max=n;}));
+    let max=0;Object.values(s.projects).forEach(p=>p.tasks.forEach(t=>{if(!t.deps)t.deps=[];if(t.assignee===undefined)t.assignee='';const n=parseInt(String(t.id).replace('t',''));if(n>max)max=n;}));
     UID=max+1;return s;}}catch(e){}
   return seed();
 }
@@ -276,6 +279,12 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(STATE));}catch(e){}}
 let STATE=load();
 let dayWidth=15, selectedId=null, viewMode='sheet', selectTimer=null;
 let ovExpanded=new Set();
+let teamExpanded=new Set();
+const PERSON_COLORS=['#5B7B8A','#946B4A','#6E7F5B','#8A6E7B','#4E6A6F','#A6855B','#7E6E86','#5E7A55'];
+function personColor(name){let h=0;for(const c of name)h=(h*31+c.charCodeAt(0))>>>0;return PERSON_COLORS[h%PERSON_COLORS.length];}
+function initials(name){const w=name.trim().split(/\s+/);return (w.length>1?w[0][0]+w[1][0]:name.slice(0,2)).toUpperCase();}
+function peopleNames(){const s=new Set();Object.values(STATE.projects).forEach(p=>p.tasks.forEach(t=>{if(t.assignee)s.add(t.assignee);}));return [...s].sort((a,b)=>a.localeCompare(b));}
+function datalistHtml(){return `<datalist id="peopleList">${peopleNames().map(n=>`<option value="${escapeHtml(n)}">`).join('')}</datalist>`;}
 
 const proj=()=>STATE.projects[STATE.current];
 const tasks=()=>proj().tasks;
@@ -357,7 +366,7 @@ function renderSheet(){
     const disc=t.summary?`<span class="disc" data-disc="${t.id}">${t.collapsed?'▸':'▾'}</span>`:'<span class="disc empty"></span>';
     const od=isOverdue(t)?'<span class="odot">●</span>':'';
     lh+=`<div class="row lvl${t.level} ${t.summary?'summary':''} ${selectedId===t.id?'sel':''} ${t.progress>=100?'done':''}" data-row="${t.id}">
-      <div class="r-act"><span class="grip" data-grip="${t.id}" title="Drag to reorder">⠿</span>${disc}${od}<span class="name" data-name="${t.id}">${escapeHtml(t.name)}</span></div>
+      <div class="r-act"><span class="grip" data-grip="${t.id}" title="Drag to reorder">⠿</span>${disc}${od}<span class="name" data-name="${t.id}">${escapeHtml(t.name)}</span>${t.assignee?`<span class="achip" style="background:${personColor(t.assignee)}" title="${escapeHtml(t.assignee)}">${escapeHtml(initials(t.assignee))}</span>`:''}</div>
       <div class="num">${st}</div><div class="num">${dur}</div><div class="num">${du}</div>
       <div class="pct">${t.progress||0}%</div></div>`;
   });
@@ -470,7 +479,86 @@ function renderOverview(){
   save();
 }
 
-function render(){ if(viewMode==='sheet')renderSheet(); else renderOverview(); }
+/* ===================== TEAM VIEW ===================== */
+function renderTeam(){
+  const list=Object.values(STATE.projects);
+  // gather: person -> [{t, projId, projName, projIdx}]
+  const byPerson={};
+  list.forEach((p,pi)=>{p.tasks.forEach(t=>{if(!t.summary&&t.start){
+    const key=t.assignee||'';(byPerson[key]=byPerson[key]||[]).push({t,projId:p.id,projName:p.name,projIdx:pi});}});});
+  const names=Object.keys(byPerson).sort((a,b)=>(a==='')-(b==='')||a.localeCompare(b)); // unassigned last
+
+  const allLeaves=[];Object.values(byPerson).forEach(arr=>arr.forEach(x=>allLeaves.push(x.t)));
+  const {s:start,e:end}=extentOf(allLeaves,true);
+  const total=days(start,end), W=total*dayWidth;
+  const xOf=t=>Math.round((t-start)/DAY*dayWidth);
+
+  // top strip: total active tasks per week across everyone
+  const weeks=[];for(let t=start;t<=end;t=addDays(t,7))weeks.push(t);
+  const loads=weeks.map(wk=>{const we=addDays(wk,6);let c=0;
+    allLeaves.forEach(t=>{if((t.progress||0)<100&&parse(t.start)<=we&&parse(t.end)>=wk)c++;});return c;});
+  const maxLoad=Math.max(1,...loads);
+  let load='<div class="loadrow">';
+  weeks.forEach((wk,k)=>{const h=Math.round(loads[k]/maxLoad*38);const x=xOf(wk);const w=7*dayWidth-1;
+    if(loads[k]>0)load+=`<div class="loadbar" style="left:${x}px;width:${w}px;height:${h}px;background:${cssVar('--summary')};opacity:.5"></div>`;
+    load+=`<div class="loadnum" style="left:${x}px;width:${w}px">${loads[k]||''}</div>`;});
+  load+='</div>';
+
+  let lh=`<div class="loadhead">Team</div><div class="loadlabel">Active tasks / week →</div>`;
+  let lanes='';
+  names.forEach(name=>{
+    const items=byPerson[name];
+    const label=name||'Unassigned';
+    const over=items.filter(x=>isOverdue(x.t)).length;
+    const projCount=new Set(items.map(x=>x.projId)).size;
+    const expanded=teamExpanded.has(label);
+    const caret=`<span class="disc" data-teamtoggle="${escapeHtml(label)}">${expanded?'▾':'▸'}</span>`;
+    const chip=name?`<span class="achip" style="background:${personColor(name)}">${escapeHtml(initials(name))}</span>`:'';
+    lh+=`<div class="ov-row"><div class="ov-rowin">${caret}${chip}<div class="ov-txt">
+        <div class="ov-name">${escapeHtml(label)}</div>
+        <div class="ov-meta">${items.length} task${items.length===1?'':'s'} · ${projCount} project${projCount===1?'':'s'}${over?` · <span class="over">${over} overdue</span>`:''}</div></div></div></div>`;
+
+    // lane: segments colored by project + overload band where 2+ concurrent unfinished tasks
+    let segs='';
+    items.forEach(({t,projIdx})=>{const col=PROJ_COLORS[projIdx%PROJ_COLORS.length];
+      const x=xOf(parse(t.start));const w=Math.max(dayWidth-1,days(parse(t.start),parse(t.end))*dayWidth-1);
+      segs+=`<div class="ovseg" style="left:${x}px;width:${w}px;background:${col};opacity:${isOverdue(t)?.45:1}"></div>`;});
+    // per-day concurrency for this person (unfinished tasks only)
+    const active=items.filter(x=>(x.t.progress||0)<100);
+    let band='',run=null;
+    for(let d=start;d<=end;d=addDays(d,1)){
+      const c=active.reduce((a,x)=>a+(parse(x.t.start)<=d&&parse(x.t.end)>=d?1:0),0);
+      const lvl=c>=3?2:c===2?1:0;
+      if(run&&run.lvl===lvl)run.end=d;
+      else{if(run&&run.lvl>0)band+=`<div class="overload" style="left:${xOf(run.s)}px;width:${xOf(addDays(run.end,1))-xOf(run.s)}px;background:${run.lvl===2?cssVar('--red'):cssVar('--c1')}"></div>`;run={s:d,end:d,lvl};}
+    }
+    if(run&&run.lvl>0)band+=`<div class="overload" style="left:${xOf(run.s)}px;width:${xOf(addDays(run.end,1))-xOf(run.s)}px;background:${run.lvl===2?cssVar('--red'):cssVar('--c1')}"></div>`;
+    lanes+=`<div class="ovlane">${segs}${band}</div>`;
+
+    if(expanded){
+      items.forEach(({t,projId,projName,projIdx})=>{
+        const col=PROJ_COLORS[projIdx%PROJ_COLORS.length];
+        lh+=`<div class="ov-sub lvl1" data-opentask="${projId}:${t.id}"><span class="nm">${escapeHtml(t.name)} · <span style="color:${col}">${escapeHtml(projName)}</span></span></div>`;
+        const x=xOf(parse(t.start)),w=Math.max(dayWidth-2,days(parse(t.start),parse(t.end))*dayWidth-2);
+        const fillW=Math.round(w*(t.progress||0)/100);
+        lanes+=`<div class="dtrow" data-opentask="${projId}:${t.id}">
+          <div class="dbar" style="left:${x}px;width:${w}px;background:${col};opacity:${isOverdue(t)?.55:1}"><div class="dfill" style="width:${fillW}px;background:${shade(col,-45)}"></div></div>
+          <div class="dlabel" style="left:${x+w}px">${escapeHtml(t.name)}</div></div>`;
+      });
+    }
+  });
+  if(!names.length){lh+=`<div class="ov-row"><div class="ov-txt"><div class="ov-name">No tasks yet</div></div></div>`;}
+
+  left.innerHTML=lh;
+  right.style.width=W+'px';
+  right.innerHTML=buildHeader(start,end,xOf)+`<div class="canvas">${buildBg(start,end,xOf)}${todayLine(start,end,xOf)}${load}${lanes}</div>`;
+
+  document.getElementById('inspector').innerHTML='<span class="empty-note">One lane per person across every project. The colored strip under a lane marks days with 2+ concurrent tasks (amber) or 3+ (red) — that\'s where someone is overloaded. Assign people in the Sheet view via each task\'s Assignee field.</span>';
+  document.getElementById('hint').textContent='Expand a person with ▸ to see their tasks · bar colors = project · amber/red underline = 2 / 3+ tasks at once · click a task to jump to it';
+  save();
+}
+
+function render(){ if(viewMode==='sheet')renderSheet(); else if(viewMode==='team')renderTeam(); else renderOverview(); }
 
 /* ===================== INSPECTOR ===================== */
 function predecessorChainHas(taskId,targetId){
@@ -487,19 +575,26 @@ function renderInspector(){
   const t=selectedId?tasks().find(x=>x.id===selectedId):null;
   if(!t){insp.innerHTML='<span class="empty-note">Select a row to edit its name, dates, progress, and dependencies.</span>';return;}
   if(t.summary){insp.innerHTML=`<div class="field"><label>Phase name</label><input type="text" id="fName" value="${escapeHtml(t.name)}" style="width:220px"></div>
-    <span class="empty-note">Phase span is calculated from its tasks.</span><button class="tool del" id="delBtn">Delete</button>`;
-    wireName(t);document.getElementById('delBtn').onclick=()=>deleteTask(t.id);return;}
+    <div class="field"><label>Assign all tasks in phase</label><input type="text" id="fAsgAll" list="peopleList" placeholder="type a name…" style="width:140px"></div>
+    <span class="empty-note">Phase span is calculated from its tasks.</span><button class="tool del" id="delBtn">Delete</button>${datalistHtml()}`;
+    wireName(t);
+    const aA=document.getElementById('fAsgAll');
+    aA.onchange=()=>{const v=aA.value.trim();if(!v&&!confirm('Clear the assignee on every task in this phase?'))return;
+      const i=indexOf(t.id);descendants(i).forEach(j=>{const c=tasks()[j];if(!c.summary)c.assignee=v;});render();};
+    document.getElementById('delBtn').onclick=()=>deleteTask(t.id);return;}
   const chips=(t.deps||[]).map(pid=>{const p=tasks().find(x=>x.id===pid);return p?`<span class="chip">${escapeHtml(p.name)}<b data-undep="${pid}">×</b></span>`:'';}).join('');
   const cands=tasks().filter(x=>!x.summary&&x.id!==t.id&&!(t.deps||[]).includes(x.id)&&!predecessorChainHas(x.id,t.id));
   const opts='<option value="">+ add…</option>'+cands.map(x=>`<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
   insp.innerHTML=`<div class="field"><label>Task name</label><input type="text" id="fName" value="${escapeHtml(t.name)}" style="width:190px"></div>
+    <div class="field"><label>Assignee</label><input type="text" id="fAsg" list="peopleList" value="${escapeHtml(t.assignee||'')}" placeholder="unassigned" style="width:110px"></div>
     <div class="field"><label>Start</label><input type="date" id="fStart" value="${t.start||''}"></div>
     <div class="field"><label>End</label><input type="date" id="fEnd" value="${t.end||''}"></div>
     <div class="field"><label>Progress %</label><input type="number" class="pct-in" id="fPct" min="0" max="100" step="5" value="${t.progress||0}"></div>
     <div class="field"><label>Depends on (finish→start)</label><div class="deps">${chips}<select id="fDep">${opts}</select></div></div>
-    <button class="tool del" id="delBtn">Delete</button>`;
+    <button class="tool del" id="delBtn">Delete</button>${datalistHtml()}`;
   wireName(t);
-  const sB=document.getElementById('fStart'),eB=document.getElementById('fEnd'),pB=document.getElementById('fPct'),dB=document.getElementById('fDep');
+  const sB=document.getElementById('fStart'),eB=document.getElementById('fEnd'),pB=document.getElementById('fPct'),dB=document.getElementById('fDep'),aB=document.getElementById('fAsg');
+  aB.onchange=()=>{t.assignee=aB.value.trim();render();};
   sB.onchange=()=>{if(sB.value){if(parse(sB.value)>parse(t.end))t.end=sB.value;t.start=sB.value;render();}};
   eB.onchange=()=>{if(eB.value){if(parse(eB.value)<parse(t.start))t.start=eB.value;t.end=eB.value;render();}};
   pB.onchange=()=>{t.progress=Math.max(0,Math.min(100,+pB.value||0));render();};
@@ -510,6 +605,7 @@ function renderInspector(){
 
 /* ===================== INTERACTION ===================== */
 left.addEventListener('click',e=>{
+  const tt=e.target.closest('[data-teamtoggle]');if(tt){const id=tt.dataset.teamtoggle;teamExpanded.has(id)?teamExpanded.delete(id):teamExpanded.add(id);render();return;}
   const ovt=e.target.closest('[data-ovtoggle]');if(ovt){const id=ovt.dataset.ovtoggle;ovExpanded.has(id)?ovExpanded.delete(id):ovExpanded.add(id);render();return;}
   const ot=e.target.closest('[data-opentask]');if(ot){const[pid,tid]=ot.dataset.opentask.split(':');STATE.current=pid;selectedId=tid;setView('sheet');return;}
   const open=e.target.closest('[data-open]');if(open){STATE.current=open.dataset.open;setView('sheet');return;}
@@ -626,9 +722,11 @@ document.getElementById('delProj').onclick=()=>{
 function setView(v){viewMode=v;
   document.getElementById('vSheet').classList.toggle('on',v==='sheet');
   document.getElementById('vOver').classList.toggle('on',v==='over');
+  document.getElementById('vTeam').classList.toggle('on',v==='team');
   fillProjects();render();}
 document.getElementById('vSheet').onclick=()=>setView('sheet');
 document.getElementById('vOver').onclick=()=>setView('over');
+document.getElementById('vTeam').onclick=()=>setView('team');
 
 const ds=document.getElementById('datestamp');
 ds.textContent=fmtShort(todayUTC)+' '+new Date(todayUTC).getUTCFullYear();
@@ -638,7 +736,7 @@ document.getElementById('exportBtn').onclick=()=>{const blob=new Blob([JSON.stri
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='schedule-'+new Date().toISOString().slice(0,10)+'.json';a.click();};
 document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();
 document.getElementById('importFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
-  r.onload=()=>{try{const s=JSON.parse(r.result);if(s.projects){STATE=s;Object.values(STATE.projects).forEach(p=>p.tasks.forEach(t=>{if(!t.deps)t.deps=[];}));selectedId=null;fillProjects();render();}}catch(err){alert('Could not read that file.');}};
+  r.onload=()=>{try{const s=JSON.parse(r.result);if(s.projects){STATE=s;Object.values(STATE.projects).forEach(p=>p.tasks.forEach(t=>{if(!t.deps)t.deps=[];if(t.assignee===undefined)t.assignee='';}));selectedId=null;fillProjects();render();}}catch(err){alert('Could not read that file.');}};
   r.readAsText(f);};
 document.getElementById('printBtn').onclick=()=>window.print();
 
