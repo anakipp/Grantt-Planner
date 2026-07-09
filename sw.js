@@ -1,6 +1,6 @@
 // Schedule Sheet service worker — cache-first, so the app opens offline.
 // Bump the version string whenever you update index.html to push the new build.
-const CACHE = 'schedule-sheet-v1';
+const CACHE = 'schedule-sheet-v2';
 const ASSETS = [
   './',
   './index.html',
